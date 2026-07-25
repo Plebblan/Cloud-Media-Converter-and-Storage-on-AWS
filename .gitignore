@@ -1,0 +1,54 @@
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Build and dist files
+dist/
+build/
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS specific files
+.DS_Store
+Thumbs.db
+.DS_Store?
+*.swp
+*.swo
+*~
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.vim/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# AWS and credentials
+aws-credentials
+.aws/
+
+# Uploaded files (if sensitive)
+uploads/*.mp4
+uploads/*.avi
+uploads/*.mov
