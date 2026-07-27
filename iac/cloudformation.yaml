@@ -1,8 +1,301 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: CloudMediaConverter and Storage on AWS
+Description: Cloud Media Converter and Storage on AWS Serverless Architecture
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: cloud-media-converter
+    Description: Prefix for resource names.
+  NotificationEmail:
+    Type: String
+    Description: SES verified email used for completion notifications.
+  ApiStageName:
+    Type: String
+    Default: prod
+    Description: API Gateway stage name.
 
 Resources:
-  PlaceholderBucket:
+  RawMediaBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: cloud-media-converter-placeholder
+      BucketName: !Sub '${EnvironmentName}-raw-${AWS::AccountId}-${AWS::Region}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt ProcessUploadFunction.Arn
+
+  ProcessedMediaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${EnvironmentName}-processed-${AWS::AccountId}-${AWS::Region}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  JobTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${EnvironmentName}-jobs'
+      AttributeDefinitions:
+        - AttributeName: JobId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: JobId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: LambdaFunctionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                  - s3:PutObjectAcl
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${RawMediaBucket}'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${RawMediaBucket}/*'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${ProcessedMediaBucket}'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${ProcessedMediaBucket}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: !GetAtt JobTable.Arn
+              - Effect: Allow
+                Action:
+                  - mediaconvert:CreateJob
+                  - mediaconvert:GetJob
+                  - mediaconvert:DescribeEndpoints
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: !GetAtt MediaConvertServiceRole.Arn
+
+  MediaConvertServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: mediaconvert.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSMediaConvertFullAccess
+      Policies:
+        - PolicyName: MediaConvertS3Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:${AWS::Partition}:s3:::${RawMediaBucket}'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${RawMediaBucket}/*'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${ProcessedMediaBucket}'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${ProcessedMediaBucket}/*'
+
+  PresignedUrlFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${EnvironmentName}-presigned-url'
+      Runtime: nodejs20.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          RAW_BUCKET: !Ref RawMediaBucket
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const s3 = new AWS.S3();
+          exports.handler = async (event) => {
+            const body = JSON.parse(event.body || '{}');
+            const key = body.key || `upload-${Date.now()}`;
+            const url = await s3.getSignedUrlPromise('putObject', {
+              Bucket: process.env.RAW_BUCKET,
+              Key: key,
+              Expires: 900
+            });
+            return {
+              statusCode: 200,
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url, key })
+            };
+          };
+
+  ProcessUploadFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${EnvironmentName}-process-upload'
+      Runtime: nodejs20.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          RAW_BUCKET: !Ref RawMediaBucket
+          PROCESSED_BUCKET: !Ref ProcessedMediaBucket
+          JOB_TABLE: !Ref JobTable
+          MEDIACONVERT_ROLE_ARN: !GetAtt MediaConvertServiceRole.Arn
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            console.log('S3 event received', JSON.stringify(event));
+            return { statusCode: 200, body: 'Processing triggered' };
+          };
+
+  HandleCompletionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${EnvironmentName}-handle-completion'
+      Runtime: nodejs20.x
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          JOB_TABLE: !Ref JobTable
+          NOTIFICATION_EMAIL: !Ref NotificationEmail
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            console.log('MediaConvert completion event', JSON.stringify(event));
+            return { statusCode: 200, body: 'Completion handled' };
+          };
+
+  ApiGatewayRestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${EnvironmentName}-api'
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  ApiGatewayResourcePresignedUrl:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ParentId: !GetAtt ApiGatewayRestApi.RootResourceId
+      PathPart: presigned-url
+
+  ApiGatewayMethodPresignedUrl:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ResourceId: !Ref ApiGatewayResourcePresignedUrl
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${PresignedUrlFunction.Arn}/invocations'
+
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ApiGatewayMethodPresignedUrl
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+
+  ApiGatewayStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      StageName: !Ref ApiStageName
+      RestApiId: !Ref ApiGatewayRestApi
+      DeploymentId: !Ref ApiGatewayDeployment
+
+  PresignedUrlLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PresignedUrlFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/POST/presigned-url'
+
+  ProcessUploadLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ProcessUploadFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt RawMediaBucket.Arn
+
+  MediaConvertCompletionRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${EnvironmentName}-mediaconvert-completion-rule'
+      EventPattern:
+        source:
+          - aws.mediaconvert
+        detail-type:
+          - MediaConvert Job State Change
+        detail:
+          status:
+            - COMPLETE
+            - ERROR
+      Targets:
+        - Arn: !GetAtt HandleCompletionFunction.Arn
+          Id: HandleCompletionTarget
+
+  EventBridgeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref HandleCompletionFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt MediaConvertCompletionRule.Arn
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway URL for presigned URL requests.
+    Value: !Sub 'https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStageName}/presigned-url'
+  RawBucketName:
+    Description: Raw upload S3 bucket.
+    Value: !Ref RawMediaBucket
+  ProcessedBucketName:
+    Description: Processed media S3 bucket.
+    Value: !Ref ProcessedMediaBucket
+  JobTableName:
+    Description: DynamoDB job table.
+    Value: !Ref JobTable

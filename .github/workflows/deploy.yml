@@ -26,6 +26,16 @@ jobs:
         run: |
           cd frontend
           npm run build
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-region: ap-southeast-1
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       - name: Deploy CloudFormation stack
         run: |
-          echo "Deploy step placeholder - implement AWS deployment commands here"
+          aws cloudformation deploy \
+            --stack-name cloud-media-converter-stack \
+            --template-file iac/cloudformation.yaml \
+            --parameter-overrides NotificationEmail="${{ secrets.NOTIFICATION_EMAIL }}" \
+            --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND
