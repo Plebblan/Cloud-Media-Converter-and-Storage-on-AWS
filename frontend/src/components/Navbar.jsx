@@ -1,7 +1,14 @@
 import React from 'react';
 import { Cloud, HardDrive, RefreshCw, Upload, Sparkles, LayoutGrid, List } from 'lucide-react';
 
-export default function Navbar({ onUploadClick, viewMode, setViewMode, activeTab, setActiveTab }) {
+export default function Navbar({
+  onUploadClick,
+  viewMode,
+  setViewMode,
+  activeTab,
+  setActiveTab,
+  onLogout
+}) {
   return (
     <header className="glass-panel" style={{ margin: '20px 20px 0 20px', padding: '16px 28px', borderRadius: '16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
@@ -99,6 +106,18 @@ export default function Navbar({ onUploadClick, viewMode, setViewMode, activeTab
             <Upload size={18} />
             <span>Upload Media</span>
           </button>
+
+          <button className="btn"
+            onClick={onLogout}
+            style={{
+              background: "#dc2626",
+              color: "white",
+              border: "none"
+              }}
+            >
+            Logout
+          </button>
+
         </div>
 
       </div>

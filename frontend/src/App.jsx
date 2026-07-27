@@ -7,11 +7,28 @@ import ConvertModal from './components/ConvertModal';
 import MediaPreviewModal from './components/MediaPreviewModal';
 import ConversionHistory from './components/ConversionHistory';
 import { INITIAL_FILES } from './utils/mediaHelpers';
+import Login from './components/Login';
 
 export default function App() {
   const [files, setFiles] = useState(INITIAL_FILES);
   const [viewMode, setViewMode] = useState('grid');
   const [activeTab, setActiveTab] = useState('all');
+
+  const [loggedIn, setLoggedIn] = useState(
+  localStorage.getItem("loggedIn") === "true"
+  );
+  
+  // Login Handler
+  const handleLogin = () => {
+  localStorage.setItem("loggedIn", "true");
+  setLoggedIn(true);
+  };
+
+  // Logout Handler
+  const handleLogout = () => {
+  localStorage.removeItem("loggedIn");
+  setLoggedIn(false);
+  };
   
   // Modals state
   const [isUploaderOpen, setIsUploaderOpen] = useState(false);
@@ -105,6 +122,14 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+  if (!loggedIn) {
+    return (
+      <Login
+        onLogin={handleLogin}
+      />
+    );
+  }
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       
@@ -115,6 +140,7 @@ export default function App() {
         setViewMode={setViewMode}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        onLogout={handleLogout}
       />
 
       {/* Cloud Storage Capacity Stats */}
