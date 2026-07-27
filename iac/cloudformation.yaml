@@ -174,8 +174,8 @@ Resources:
       Timeout: 30
       Environment:
         Variables:
-          RAW_BUCKET: !Ref RawMediaBucket
-          PROCESSED_BUCKET: !Ref ProcessedMediaBucket
+          RAW_BUCKET: !Sub '${EnvironmentName}-raw-${AWS::AccountId}-${AWS::Region}'
+          PROCESSED_BUCKET: !Sub '${EnvironmentName}-processed-${AWS::AccountId}-${AWS::Region}'
           JOB_TABLE: !Ref JobTable
           MEDIACONVERT_ROLE_ARN: !GetAtt MediaConvertServiceRole.Arn
       Code:
