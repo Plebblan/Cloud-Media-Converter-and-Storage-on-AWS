@@ -26,10 +26,6 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
-      NotificationConfiguration:
-        LambdaConfigurations:
-          - Event: s3:ObjectCreated:*
-            Function: !GetAtt ProcessUploadFunction.Arn
 
   ProcessedMediaBucket:
     Type: AWS::S3::Bucket
@@ -79,10 +75,10 @@ Resources:
                   - s3:ListBucket
                   - s3:PutObjectAcl
                 Resource:
-                  - !Sub 'arn:${AWS::Partition}:s3:::${RawMediaBucket}'
-                  - !Sub 'arn:${AWS::Partition}:s3:::${RawMediaBucket}/*'
-                  - !Sub 'arn:${AWS::Partition}:s3:::${ProcessedMediaBucket}'
-                  - !Sub 'arn:${AWS::Partition}:s3:::${ProcessedMediaBucket}/*'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${EnvironmentName}-raw-${AWS::AccountId}-${AWS::Region}'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${EnvironmentName}-raw-${AWS::AccountId}-${AWS::Region}/*'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${EnvironmentName}-processed-${AWS::AccountId}-${AWS::Region}'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${EnvironmentName}-processed-${AWS::AccountId}-${AWS::Region}/*'
               - Effect: Allow
                 Action:
                   - dynamodb:PutItem
@@ -116,8 +112,6 @@ Resources:
             Principal:
               Service: mediaconvert.amazonaws.com
             Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSMediaConvertFullAccess
       Policies:
         - PolicyName: MediaConvertS3Policy
           PolicyDocument:
@@ -129,22 +123,22 @@ Resources:
                   - s3:PutObject
                   - s3:ListBucket
                 Resource:
-                  - !Sub 'arn:${AWS::Partition}:s3:::${RawMediaBucket}'
-                  - !Sub 'arn:${AWS::Partition}:s3:::${RawMediaBucket}/*'
-                  - !Sub 'arn:${AWS::Partition}:s3:::${ProcessedMediaBucket}'
-                  - !Sub 'arn:${AWS::Partition}:s3:::${ProcessedMediaBucket}/*'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${EnvironmentName}-raw-${AWS::AccountId}-${AWS::Region}'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${EnvironmentName}-raw-${AWS::AccountId}-${AWS::Region}/*'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${EnvironmentName}-processed-${AWS::AccountId}-${AWS::Region}'
+                  - !Sub 'arn:${AWS::Partition}:s3:::${EnvironmentName}-processed-${AWS::AccountId}-${AWS::Region}/*'
 
   PresignedUrlFunction:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub '${EnvironmentName}-presigned-url'
-      Runtime: nodejs20.x
+      Runtime: nodejs24.x
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: 30
       Environment:
         Variables:
-          RAW_BUCKET: !Ref RawMediaBucket
+          RAW_BUCKET: !Sub '${EnvironmentName}-raw-${AWS::AccountId}-${AWS::Region}'
       Code:
         ZipFile: |
           const AWS = require('aws-sdk');
@@ -168,7 +162,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub '${EnvironmentName}-process-upload'
-      Runtime: nodejs20.x
+      Runtime: nodejs24.x
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: 30
@@ -189,7 +183,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub '${EnvironmentName}-handle-completion'
-      Runtime: nodejs20.x
+      Runtime: nodejs24.x
       Handler: index.handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: 30
@@ -253,13 +247,30 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/POST/presigned-url'
 
+  RawMediaBucketEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${EnvironmentName}-raw-upload-rule'
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - !Ref RawMediaBucket
+      Targets:
+        - Arn: !GetAtt ProcessUploadFunction.Arn
+          Id: ProcessUploadTarget
+
   ProcessUploadLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref ProcessUploadFunction
       Action: lambda:InvokeFunction
-      Principal: s3.amazonaws.com
-      SourceArn: !GetAtt RawMediaBucket.Arn
+      Principal: events.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
 
   MediaConvertCompletionRule:
     Type: AWS::Events::Rule
@@ -284,7 +295,7 @@ Resources:
       FunctionName: !Ref HandleCompletionFunction
       Action: lambda:InvokeFunction
       Principal: events.amazonaws.com
-      SourceArn: !GetAtt MediaConvertCompletionRule.Arn
+      SourceAccount: !Ref AWS::AccountId
 
 Outputs:
   ApiUrl:
