@@ -8,12 +8,13 @@
 
 # Dependencies
 node_modules/
-package-lock.json
 yarn.lock
 
 # Build and dist files
 dist/
 build/
+cdk.out/
+iac/cdk.out/
 *.tsbuildinfo
 
 # Logs

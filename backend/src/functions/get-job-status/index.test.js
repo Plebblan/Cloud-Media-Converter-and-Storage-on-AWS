@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-test('process-upload handler module exports a handler', () => {
+test('get-job-status handler module exports a handler', () => {
   const { handler } = require('./index');
 
   assert.equal(typeof handler, 'function');

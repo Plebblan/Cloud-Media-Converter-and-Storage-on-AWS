@@ -1,6 +1,0 @@
-{
-  "Parameters": {
-    "Region": "ap-southeast-1",
-    "NotificationEmail": "notify@example.com"
-  }
-}

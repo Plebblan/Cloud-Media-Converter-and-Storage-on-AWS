@@ -1,30 +1,41 @@
-# Cloud Media Converter - Backend API
+# Cloud Media Converter - Serverless Backend
 
-Modular Express.js backend for managing file storage and driving media conversion jobs with `fluent-ffmpeg`.
+This backend contains AWS Lambda handlers intended to be deployed by the CDK app in `iac/`.
 
-## Features
-- **File Ingestion**: Scalable upload handler using Multer.
-- **Conversion Engine**: Abstracted FFmpeg service support for Video, Audio, and Image conversions.
-- **File System Storage**: Organizes uploaded raw files and converted output files.
-- **RESTful Endpoints**:
-  - `GET /api/files` - List storage contents & stats.
-  - `POST /api/files/upload` - Upload new files.
-  - `DELETE /api/files/:id` - Delete files.
-  - `POST /api/convert` - Trigger background conversion job.
-  - `GET /api/convert/status/:jobId` - Check conversion status.
+## Runtime Shape
 
-## Setup Instructions
+- API Gateway exposes upload/job endpoints.
+- Lambda generates S3 presigned upload URLs.
+- Clients upload media directly to S3.
+- S3 object-created events invoke a processing Lambda.
+- DynamoDB stores job metadata and status.
 
-1. Ensure **FFmpeg** is installed on your system and added to your PATH environment variable.
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Copy `.env.example` to `.env`:
-   ```bash
-   cp .env.example .env
-   ```
-4. Start development server:
-   ```bash
-   npm run dev
-   ```
+## Handlers
+
+- `src/functions/get-presigned-url` - creates a job record and returns a presigned S3 upload URL.
+- `src/functions/get-job-status` - reads job status from DynamoDB.
+- `src/functions/process-upload` - reacts to uploaded objects, runs FFmpeg in Lambda, uploads the converted file, and updates job status.
+
+## FFmpeg
+
+The conversion Lambda expects an FFmpeg binary at `/opt/bin/ffmpeg`. Attach a compatible Lambda layer during deploy:
+
+```bash
+cd iac
+npm run deploy -- -c ffmpegLayerArn=arn:aws:lambda:REGION:ACCOUNT_ID:layer:LAYER_NAME:VERSION
+```
+
+Lambda conversion is best for small and medium files that fit within the function timeout and `/tmp` storage. Larger media jobs should move to ECS/Fargate or AWS Batch while keeping the same S3/DynamoDB API shape.
+
+## Deploy
+
+Install backend dependencies, then deploy from the CDK project:
+
+```bash
+cd backend
+npm install
+
+cd ../iac
+npm install
+npm run deploy
+```
