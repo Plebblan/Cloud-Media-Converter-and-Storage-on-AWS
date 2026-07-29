@@ -1,43 +1,40 @@
 # Cloud Media Converter - Serverless Backend
 
-This backend contains AWS Lambda handlers intended to be deployed by the CDK app in `iac/`.
+This backend contains the AWS Lambda handlers that power the media conversion workflow. The handlers are deployed by the CDK app in the `iac/` directory.
 
-## Runtime Shape
+## Runtime shape
 
-- API Gateway exposes upload/job endpoints.
+- API Gateway exposes the upload and job-status endpoints.
 - Lambda generates S3 presigned upload URLs.
 - Clients upload media directly to S3.
-- S3 object-created events invoke a processing Lambda.
+- S3 object-created events invoke the processing Lambda.
 - DynamoDB stores job metadata and status.
 
-## Handlers
+## Local setup
 
-- `src/functions/get-presigned-url` - creates a job record and returns a presigned S3 upload URL.
-- `src/functions/get-job-status` - reads job status from DynamoDB.
-- `src/functions/process-upload` - reacts to uploaded objects, runs FFmpeg in Lambda, uploads the converted file, and updates job status.
-
-## FFmpeg
-
-The conversion Lambda uses `ffmpeg-static` as a packaged runtime dependency. CDK installs the Linux ARM64 binary into the Lambda asset during bundling, so no separate Lambda layer is required.
-
-Lambda conversion is best for small and medium files that fit within the function timeout and `/tmp` storage. Larger media jobs should move to ECS/Fargate or AWS Batch while keeping the same S3/DynamoDB API shape.
-
-## Deploy
-
-Install backend dependencies, then deploy from the CDK project:
+1. Install backend dependencies:
 
 ```bash
 cd backend
 npm install
+```
 
-cd ../iac
+## Infrastructure deployment
+
+From the repository root:
+
+```bash
+cd iac
 npm install
+npm run synth
 npm run deploy
 ```
 
+The CDK stack will create the required AWS resources and update the backend environment file with the generated values.
+
 ## Cleanup
 
-Destroy the AWS resources created by this CDK stack:
+To destroy the deployed AWS resources:
 
 ```bash
 cd iac
