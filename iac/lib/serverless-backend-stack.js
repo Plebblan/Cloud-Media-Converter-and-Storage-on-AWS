@@ -44,7 +44,6 @@ class ServerlessBackendStack extends cdk.Stack {
       RAW_BUCKET_NAME: rawBucket.bucketName,
       PROCESSED_BUCKET_NAME: processedBucket.bucketName,
       JOBS_TABLE_NAME: jobsTable.tableName,
-      FFMPEG_PATH: '/opt/bin/ffmpeg',
       DEFAULT_TARGET_FORMAT: 'mp4',
     };
 
@@ -54,12 +53,15 @@ class ServerlessBackendStack extends cdk.Stack {
       memorySize: 1024,
       timeout: cdk.Duration.minutes(15),
       ephemeralStorageSize: cdk.Size.mebibytes(2048),
+      bundling: {
+        externalModules: ['ffmpeg-static'],
+        nodeModules: ['ffmpeg-static'],
+        environment: {
+          npm_config_platform: 'linux',
+          npm_config_arch: 'arm64',
+        },
+      },
     });
-
-    const ffmpegLayerArn = this.node.tryGetContext('ffmpegLayerArn') || process.env.FFMPEG_LAYER_ARN;
-    if (ffmpegLayerArn) {
-      processUpload.addLayers(lambda.LayerVersion.fromLayerVersionArn(this, 'FfmpegLayer', ffmpegLayerArn));
-    }
 
     rawBucket.grantPut(getPresignedUrl);
     jobsTable.grantWriteData(getPresignedUrl);
@@ -102,6 +104,8 @@ class ServerlessBackendStack extends cdk.Stack {
   }
 
   createNodeFunction(id, functionName, environment, overrides = {}) {
+    const { bundling, ...functionOverrides } = overrides;
+
     return new lambdaNodejs.NodejsFunction(this, id, {
       entry: path.join(__dirname, '..', '..', 'backend', 'src', 'functions', functionName, 'index.js'),
       depsLockFilePath: path.join(__dirname, '..', '..', 'backend', 'package-lock.json'),
@@ -115,8 +119,9 @@ class ServerlessBackendStack extends cdk.Stack {
         externalModules: [],
         minify: true,
         sourceMap: false,
+        ...bundling,
       },
-      ...overrides,
+      ...functionOverrides,
     });
   }
 }

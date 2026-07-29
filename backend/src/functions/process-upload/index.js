@@ -8,12 +8,12 @@ const { GetItemCommand, UpdateItemCommand } = require('@aws-sdk/client-dynamodb'
 const { unmarshall } = require('@aws-sdk/util-dynamodb');
 const { dynamodb } = require('../../shared/dynamodb-client');
 const logger = require('../../shared/logger');
+const FFMPEG_PATH = require('ffmpeg-static');
 
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 
 const DB_TABLE_NAME = process.env.JOBS_TABLE_NAME;
 const PROCESSED_BUCKET_NAME = process.env.PROCESSED_BUCKET_NAME;
-const FFMPEG_PATH = process.env.FFMPEG_PATH || '/opt/bin/ffmpeg';
 const DEFAULT_TARGET_FORMAT = process.env.DEFAULT_TARGET_FORMAT || 'mp4';
 
 const contentTypes = {
@@ -147,9 +147,9 @@ exports.handler = async (event) => {
     try {
       const job = await getJob(parsed);
       const targetFormat = String(job.targetFormat || DEFAULT_TARGET_FORMAT).replace(/^\./, '').toLowerCase();
-      const inputPath = path.join(os.tmpdir(), `${parsed.jobId}-${path.basename(parsed.originalFileName)}`);
+      const inputPath = path.join(os.tmpdir(), `input-${parsed.jobId}-${path.basename(parsed.originalFileName)}`);
       const outputFileName = `${path.parse(parsed.originalFileName).name}.${targetFormat}`;
-      const outputPath = path.join(os.tmpdir(), `${parsed.jobId}-${outputFileName}`);
+      const outputPath = path.join(os.tmpdir(), `output-${parsed.jobId}-${outputFileName}`);
       const outputS3Key = `processed/${parsed.userId}/${parsed.jobId}/${outputFileName}`;
 
       await updateJob(parsed, {
@@ -181,6 +181,17 @@ exports.handler = async (event) => {
       });
 
       results.push(failedJob);
+    } finally {
+      // Clean up temp files safely
+      [inputPath, outputPath].forEach((filePath) => {
+        if (filePath && fs.existsSync(filePath)) {
+          try {
+            fs.unlinkSync(filePath);
+          } catch (e) {
+            // Ignore deletion errors
+          }
+        }
+      });
     }
   }
 

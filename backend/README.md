@@ -18,12 +18,7 @@ This backend contains AWS Lambda handlers intended to be deployed by the CDK app
 
 ## FFmpeg
 
-The conversion Lambda expects an FFmpeg binary at `/opt/bin/ffmpeg`. Attach a compatible Lambda layer during deploy:
-
-```bash
-cd iac
-npm run deploy -- -c ffmpegLayerArn=arn:aws:lambda:REGION:ACCOUNT_ID:layer:LAYER_NAME:VERSION
-```
+The conversion Lambda uses `ffmpeg-static` as a packaged runtime dependency. CDK installs the Linux ARM64 binary into the Lambda asset during bundling, so no separate Lambda layer is required.
 
 Lambda conversion is best for small and medium files that fit within the function timeout and `/tmp` storage. Larger media jobs should move to ECS/Fargate or AWS Batch while keeping the same S3/DynamoDB API shape.
 
