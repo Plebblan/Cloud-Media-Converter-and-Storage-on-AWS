@@ -38,6 +38,13 @@ class ServerlessBackendStack extends cdk.Stack {
       enforceSSL: true,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
+      lifecycleRules: [
+        {
+          id: 'DeleteProcessedFilesAfter1Day',
+          enabled: true,
+          expiration: cdk.Duration.days(1),
+        },
+      ],
     });
 
     const jobsTable = new dynamodb.Table(this, 'JobsTable', {
