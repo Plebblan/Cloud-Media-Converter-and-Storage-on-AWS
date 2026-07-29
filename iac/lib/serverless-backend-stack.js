@@ -23,6 +23,13 @@ class ServerlessBackendStack extends cdk.Stack {
         allowedOrigins: ['*'],
         allowedHeaders: ['*'],
       }],
+      lifecycleRules: [
+        {
+          id: 'DeleteProcessedFilesAfter1Day',
+          enabled: true,
+          expiration: cdk.Duration.days(1),
+        },
+      ],
     });
 
     const processedBucket = new s3.Bucket(this, 'ProcessedMediaBucket', {
@@ -38,6 +45,7 @@ class ServerlessBackendStack extends cdk.Stack {
       sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
+      timeToLiveAttribute: 'ttl',
     });
 
     const commonEnvironment = {
@@ -70,6 +78,7 @@ class ServerlessBackendStack extends cdk.Stack {
 
     rawBucket.grantRead(processUpload);
     processedBucket.grantReadWrite(processUpload);
+    processedBucket.grantReadWrite(getJobStatus);
     jobsTable.grantReadWriteData(processUpload);
 
     rawBucket.addEventNotification(

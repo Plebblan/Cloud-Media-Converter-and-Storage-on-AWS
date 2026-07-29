@@ -151,12 +151,14 @@ exports.handler = async (event) => {
       const outputFileName = `${path.parse(parsed.originalFileName).name}.${targetFormat}`;
       const outputPath = path.join(os.tmpdir(), `output-${parsed.jobId}-${outputFileName}`);
       const outputS3Key = `processed/${parsed.userId}/${parsed.jobId}/${outputFileName}`;
+      const ttlInSeconds = Math.floor(Date.now() / 1000) + (3 * 60 * 60); // time-to-live of 3 hours
 
       await updateJob(parsed, {
         status: 'PROCESSING',
         uploadedAt: new Date().toISOString(),
         rawBucketName: bucketName,
         inputS3Key: parsed.inputS3Key,
+        ttl: ttlInSeconds
       });
 
       await downloadObject(bucketName, parsed.inputS3Key, inputPath);
@@ -168,6 +170,7 @@ exports.handler = async (event) => {
         completedAt: new Date().toISOString(),
         outputBucketName: PROCESSED_BUCKET_NAME,
         outputS3Key,
+        ttl: ttlInSeconds,
       });
 
       results.push(completedJob);
@@ -178,6 +181,7 @@ exports.handler = async (event) => {
         status: 'FAILED',
         failedAt: new Date().toISOString(),
         errorMessage: error.message,
+        ttl: ttlInSeconds,
       });
 
       results.push(failedJob);
