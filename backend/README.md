@@ -39,3 +39,12 @@ cd ../iac
 npm install
 npm run deploy
 ```
+
+## Cleanup
+
+Destroy the AWS resources created by this CDK stack:
+
+```bash
+cd iac
+npm run cleanup
+```

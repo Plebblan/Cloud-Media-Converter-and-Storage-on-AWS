@@ -5,7 +5,8 @@
   "scripts": {
     "synth": "cdk synth",
     "diff": "cdk diff",
-    "deploy": "cdk deploy"
+    "deploy": "cdk deploy",
+    "cleanup": "cdk destroy CloudMediaConverterServerlessStack"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.153.0",
