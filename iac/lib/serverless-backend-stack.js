@@ -49,7 +49,6 @@ class ServerlessBackendStack extends cdk.Stack {
 
     const jobsTable = new dynamodb.Table(this, 'JobsTable', {
       partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       timeToLiveAttribute: 'ttl',
@@ -112,7 +111,6 @@ class ServerlessBackendStack extends cdk.Stack {
 
     apiResource
       .addResource('job-status')
-      .addResource('{userId}')
       .addResource('{jobId}')
       .addMethod('GET', new apigateway.LambdaIntegration(getJobStatus));
 

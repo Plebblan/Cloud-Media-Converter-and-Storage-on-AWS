@@ -16,21 +16,20 @@ const corsHeaders = {
 
 exports.handler = async (event) => {
   try {
-    const { userId, jobId } = event.pathParameters || {};
+    const { jobId } = event.pathParameters || {};
 
-    if (!userId || !jobId) {
+    if (!jobId) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'userId and jobId are required' }),
+        body: JSON.stringify({ error: 'jobId is required' }),
       };
     }
 
     const response = await dynamodb.send(new GetItemCommand({
       TableName: DB_TABLE_NAME,
       Key: {
-        PK: { S: `USER#${userId}` },
-        SK: { S: `JOB#${jobId}` },
+        PK: { S: `JOB#${jobId}` },
       },
     }));
 
@@ -43,15 +42,21 @@ exports.handler = async (event) => {
     }
 
     const rawJob = unmarshall(response.Item);
+    const normalizedStatus = String(rawJob.status || '').toUpperCase();
     const job = {
       jobId: rawJob.jobId,
       targetFormat: rawJob.targetFormat,
       status: rawJob.status,
       createdAt: rawJob.createdAt,
-      completedAt: rawJob.completedAt
+      completedAt: rawJob.completedAt,
+      outputS3Key: rawJob.outputS3Key,
+      error: rawJob.error || rawJob.errorMessage || null,
     };
 
-    if (rawJob.status === 'COMPLETED' && rawJob.outputS3Key) {
+    if (
+      ['COMPLETED', 'COMPLETE', 'SUCCEEDED', 'DONE'].includes(normalizedStatus) &&
+      rawJob.outputS3Key
+    ) {
       const command = new GetObjectCommand({
         Bucket: PROCESSED_BUCKET_NAME,
         Key: rawJob.outputS3Key,

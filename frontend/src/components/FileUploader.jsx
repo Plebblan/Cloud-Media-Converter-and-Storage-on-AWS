@@ -82,12 +82,9 @@ export default function FileUploader({ isOpen, onClose, onUploadComplete }) {
     setError('');
 
     try {
-      const userId = localStorage.getItem('userId') || 'demo-user';
-
       for (const file of selectedFiles) {
         const { uploadUrl } = await requestPresignedUrl({
           fileName: file.name,
-          userId,
           targetFormat: file.format || 'mp4',
         });
 

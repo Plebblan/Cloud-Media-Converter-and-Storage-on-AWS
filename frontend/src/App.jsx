@@ -9,11 +9,19 @@ import './index.css';
 const FORMAT_OPTIONS = [
   { value: 'mp4', label: 'MP4', description: 'Video' },
   { value: 'webm', label: 'WebM', description: 'Video' },
+  { value: 'mov', label: 'MOV', description: 'Video' },
   { value: 'mp3', label: 'MP3', description: 'Audio' },
   { value: 'wav', label: 'WAV', description: 'Audio' },
+  { value: 'aac', label: 'AAC', description: 'Audio' },
+  { value: 'jpg', label: 'JPG', description: 'Image' },
+  { value: 'jpeg', label: 'JPEG', description: 'Image' },
+  { value: 'png', label: 'PNG', description: 'Image' },
+  { value: 'webp', label: 'WebP', description: 'Image' },
 ];
 
-const POLL_INTERVAL = 3000;
+const INITIAL_POLL_INTERVAL = 1000;
+const MAX_POLL_INTERVAL = 10000;
+const POLL_BACKOFF_MULTIPLIER = 2;
 
 function App() {
   const [file, setFile] = useState(null);
@@ -69,10 +77,22 @@ function App() {
       setError('');
       setStatus('uploading');
 
-      const result = await requestPresignedUrl(
-        file,
-        targetFormat
-      );
+      const result = await requestPresignedUrl({
+        fileName: file.name,
+        targetFormat: targetFormat,
+      });
+
+      const uploadResponse = await fetch(result.uploadUrl, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': file.type || 'application/octet-stream',
+        },
+        body: file, // Direct File blob stream
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(`S3 upload failed with status ${uploadResponse.status}`);
+      }
 
       setJob({
         ...result,
@@ -98,6 +118,16 @@ function App() {
     if (!job?.jobId) return;
 
     let cancelled = false;
+    let timeoutId = null;
+    let pollAttempt = 0;
+
+    const scheduleNextPoll = (delayMs) => {
+      if (cancelled) return;
+
+      timeoutId = setTimeout(() => {
+        void checkStatus();
+      }, delayMs);
+    };
 
     const checkStatus = async () => {
       try {
@@ -106,54 +136,65 @@ function App() {
         if (cancelled) return;
 
         const updatedJob = result.job || result;
+        const normalizedStatus = String(updatedJob.status || '').toUpperCase();
 
         setJob((previous) => ({
-          ...previous,
+          ...(previous || {}),
           ...updatedJob,
+          downloadUrl:
+            updatedJob.downloadUrl ||
+            updatedJob.outputUrl ||
+            updatedJob.convertedFileUrl ||
+            updatedJob.downloadURL ||
+            previous?.downloadUrl,
         }));
 
-        const currentStatus = updatedJob.status;
-
         if (
-          currentStatus === 'COMPLETED' ||
-          currentStatus === 'COMPLETE' ||
-          currentStatus === 'SUCCEEDED'
+          ['COMPLETED', 'COMPLETE', 'SUCCEEDED', 'DONE'].includes(normalizedStatus)
         ) {
           setStatus('completed');
           return;
         }
 
         if (
-          currentStatus === 'FAILED' ||
-          currentStatus === 'ERROR'
+          ['FAILED', 'ERROR', 'CANCELLED', 'CANCELED'].includes(normalizedStatus)
         ) {
           setStatus('error');
           setError(
             updatedJob.error ||
+              updatedJob.errorMessage ||
               'The conversion failed on the server.'
           );
           return;
         }
 
         setStatus('processing');
+        const nextDelay = Math.min(
+          INITIAL_POLL_INTERVAL * POLL_BACKOFF_MULTIPLIER ** pollAttempt,
+          MAX_POLL_INTERVAL
+        );
+        pollAttempt += 1;
+        scheduleNextPoll(nextDelay);
       } catch (err) {
         console.error('Job status error:', err);
 
         if (!cancelled) {
-          setError(
-            'Unable to check conversion status. Retrying...'
+          setError('Unable to check conversion status. Retrying...');
+          const nextDelay = Math.min(
+            INITIAL_POLL_INTERVAL * POLL_BACKOFF_MULTIPLIER ** pollAttempt,
+            MAX_POLL_INTERVAL
           );
+          pollAttempt += 1;
+          scheduleNextPoll(nextDelay);
         }
       }
     };
 
-    checkStatus();
-
-    const interval = setInterval(checkStatus, POLL_INTERVAL);
+    void checkStatus();
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, [job?.jobId]);
 
@@ -162,6 +203,23 @@ function App() {
     job?.outputUrl ||
     job?.convertedFileUrl ||
     job?.downloadURL;
+
+  const handleDownload = (event) => {
+    if (!downloadUrl) return;
+
+    event.preventDefault();
+
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = file?.name
+      ? `${file.name.replace(/\.[^.]+$/, '')}.${targetFormat}`
+      : `converted.${targetFormat}`;
+    link.target = '_self';
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const formatFileSize = (bytes) => {
     if (!bytes) return '';
@@ -344,16 +402,14 @@ function App() {
               </p>
 
               {downloadUrl ? (
-                <a
+                <button
                   className="download-button"
-                  href={downloadUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  download
+                  type="button"
+                  onClick={handleDownload}
                 >
                   <Download size={18} />
                   Download converted file
-                </a>
+                </button>
               ) : (
                 <p className="download-warning">
                   Conversion finished, but the backend has not

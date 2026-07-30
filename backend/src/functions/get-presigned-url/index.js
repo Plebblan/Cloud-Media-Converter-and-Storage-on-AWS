@@ -18,25 +18,24 @@ const corsHeaders = {
 exports.handler = async (event) => {
   try {
     const body = JSON.parse(event.body || '{}');
-    const { fileName, userId, targetFormat = 'mp4' } = body;
+    const { fileName, targetFormat = 'mp4' } = body;
 
-    if (!fileName || !userId) {
+    if (!fileName) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ error: 'fileName and userId are required' }),
+        body: JSON.stringify({ error: 'fileName is required' }),
       };
     }
 
     const jobId = randomUUID();
-    const s3Key = `raw/${userId}/${jobId}/${fileName}`;
+    const s3Key = `raw/${jobId}/${fileName}`;
 
     // 1. Log job status in DynamoDB
     const dbParams = {
       TableName: DB_TABLE_NAME,
       Item: marshall({
-        PK: `USER#${userId}`,
-        SK: `JOB#${jobId}`,
+        PK: `JOB#${jobId}`,
         jobId: jobId,
         status: 'PENDING_UPLOAD',
         originalFileName: fileName,

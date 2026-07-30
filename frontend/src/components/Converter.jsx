@@ -20,6 +20,12 @@ const FORMAT_OPTIONS = [
     extensions: ['video/*'],
   },
   {
+    value: 'mov',
+    label: 'MOV',
+    description: 'Video',
+    extensions: ['video/*'],
+  },
+  {
     value: 'mp3',
     label: 'MP3',
     description: 'Audio',
@@ -32,14 +38,32 @@ const FORMAT_OPTIONS = [
     extensions: ['video/*', 'audio/*'],
   },
   {
+    value: 'aac',
+    label: 'AAC',
+    description: 'Audio',
+    extensions: ['audio/*'],
+  },
+  {
     value: 'jpg',
     label: 'JPG',
     description: 'Image',
     extensions: ['image/*'],
   },
   {
+    value: 'jpeg',
+    label: 'JPEG',
+    description: 'Image',
+    extensions: ['image/*'],
+  },
+  {
     value: 'png',
     label: 'PNG',
+    description: 'Image',
+    extensions: ['image/*'],
+  },
+  {
+    value: 'webp',
+    label: 'WebP',
     description: 'Image',
     extensions: ['image/*'],
   },
