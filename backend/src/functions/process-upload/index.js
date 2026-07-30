@@ -4,11 +4,10 @@ const path = require('path');
 const { pipeline } = require('stream/promises');
 const { spawn } = require('child_process');
 const { GetObjectCommand, PutObjectCommand, S3Client } = require('@aws-sdk/client-s3');
-const { GetItemCommand, UpdateItemCommand } = require('@aws-sdk/client-dynamodb');
-const { unmarshall } = require('@aws-sdk/util-dynamodb');
 const { dynamodb } = require('../../shared/dynamodb-client');
 const logger = require('../../shared/logger');
 const FFMPEG_PATH = require('ffmpeg-static');
+const { GetCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 
@@ -42,35 +41,37 @@ function parseJobFromKey(key) {
 }
 
 async function getJob(parsed) {
-  const response = await dynamodb.send(new GetItemCommand({
+  const response = await dynamodb.send(new GetCommand({
     TableName: DB_TABLE_NAME,
     Key: {
-      PK: { S: `USER#${parsed.userId}` },
-      SK: { S: `JOB#${parsed.jobId}` },
+      PK: `USER#${parsed.userId}`,
+      SK: `JOB#${parsed.jobId}`,
     },
   }));
 
-  return response.Item ? unmarshall(response.Item) : {};
+  return response.Item || {};
 }
 
 async function updateJob(parsed, values) {
-  const names = { '#status': 'status' };
+  const names = {};
   const attributeValues = {};
   const assignments = [];
 
+  // Alias ALL keys dynamically to prevent collisions with reserved keywords (e.g., ttl, status)
   for (const [key, value] of Object.entries(values)) {
-    const nameKey = key === 'status' ? '#status' : key;
+    const nameKey = `#${key}`;
     const valueKey = `:${key}`;
 
+    names[nameKey] = key;
     assignments.push(`${nameKey} = ${valueKey}`);
-    attributeValues[valueKey] = { S: String(value) };
+    attributeValues[valueKey] = value;
   }
 
-  const response = await dynamodb.send(new UpdateItemCommand({
+  const response = await dynamodb.send(new UpdateCommand({
     TableName: DB_TABLE_NAME,
     Key: {
-      PK: { S: `USER#${parsed.userId}` },
-      SK: { S: `JOB#${parsed.jobId}` },
+      PK: `USER#${parsed.userId}`,
+      SK: `JOB#${parsed.jobId}`,
     },
     UpdateExpression: `SET ${assignments.join(', ')}`,
     ExpressionAttributeNames: names,
@@ -78,7 +79,7 @@ async function updateJob(parsed, values) {
     ReturnValues: 'ALL_NEW',
   }));
 
-  return unmarshall(response.Attributes || {});
+  return response.Attributes || {};
 }
 
 async function downloadObject(bucketName, objectKey, destinationPath) {
@@ -144,14 +145,17 @@ exports.handler = async (event) => {
       continue;
     }
 
+    const ttlInSeconds = Math.floor(Date.now() / 1000) + (3 * 60 * 60); // time-to-live of 3 hours
+    let inputPath = null;
+    let outputPath = null;
+
     try {
       const job = await getJob(parsed);
       const targetFormat = String(job.targetFormat || DEFAULT_TARGET_FORMAT).replace(/^\./, '').toLowerCase();
-      const inputPath = path.join(os.tmpdir(), `input-${parsed.jobId}-${path.basename(parsed.originalFileName)}`);
+      inputPath = path.join(os.tmpdir(), `input-${parsed.jobId}-${path.basename(parsed.originalFileName)}`);
       const outputFileName = `${path.parse(parsed.originalFileName).name}.${targetFormat}`;
-      const outputPath = path.join(os.tmpdir(), `output-${parsed.jobId}-${outputFileName}`);
+      outputPath = path.join(os.tmpdir(), `output-${parsed.jobId}-${outputFileName}`);
       const outputS3Key = `processed/${parsed.userId}/${parsed.jobId}/${outputFileName}`;
-      const ttlInSeconds = Math.floor(Date.now() / 1000) + (3 * 60 * 60); // time-to-live of 3 hours
 
       await updateJob(parsed, {
         status: 'PROCESSING',
@@ -177,14 +181,18 @@ exports.handler = async (event) => {
     } catch (error) {
       logger.log('Lambda conversion failed', { error: error.message, jobId: parsed.jobId });
 
-      const failedJob = await updateJob(parsed, {
-        status: 'FAILED',
-        failedAt: new Date().toISOString(),
-        errorMessage: error.message,
-        ttl: ttlInSeconds,
-      });
+      try {
+        const failedJob = await updateJob(parsed, {
+          status: 'FAILED',
+          failedAt: new Date().toISOString(),
+          errorMessage: error.message,
+          ttl: ttlInSeconds,
+        });
 
-      results.push(failedJob);
+        results.push(failedJob);
+      } catch (dbError) {
+        logger.log('Failed to record failure status in DynamoDB', { error: dbError.message });
+      }
     } finally {
       // Clean up temp files safely
       [inputPath, outputPath].forEach((filePath) => {

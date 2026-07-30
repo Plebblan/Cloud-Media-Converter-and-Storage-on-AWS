@@ -113,6 +113,23 @@ class ServerlessBackendStack extends cdk.Stack {
       .addResource('{jobId}')
       .addMethod('GET', new apigateway.LambdaIntegration(getJobStatus));
 
+    const plan = api.addUsagePlan('PublicUsagePlan', {
+      name: 'AnonymousPublicLimits',
+      throttle: {
+        rateLimit: 5,
+        burstLimit: 10, 
+      },
+      quota: {
+        limit: 30,
+        period: apigateway.Period.DAY,
+      },
+    });
+
+    // 2. Attach the stage to the plan
+    plan.addApiStage({
+      stage: api.deploymentStage,
+    });
+
     new cdk.CfnOutput(this, 'ApiUrl', { value: api.url });
     new cdk.CfnOutput(this, 'RawBucketName', { value: rawBucket.bucketName });
     new cdk.CfnOutput(this, 'ProcessedBucketName', { value: processedBucket.bucketName });
