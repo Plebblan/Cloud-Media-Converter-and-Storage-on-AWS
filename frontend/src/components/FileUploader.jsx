@@ -1,11 +1,14 @@
 import React, { useState, useRef } from 'react';
 import { UploadCloud, X, File, CheckCircle2, AlertCircle } from 'lucide-react';
 import { formatBytes } from '../utils/mediaHelpers';
+import { requestPresignedUrl } from '../services/api';
+import { uploadToS3 } from '../services/s3-upload';
 
 export default function FileUploader({ isOpen, onClose, onUploadComplete }) {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
   const fileInputRef = useRef(null);
 
   if (!isOpen) return null;
@@ -72,15 +75,33 @@ export default function FileUploader({ isOpen, onClose, onUploadComplete }) {
     setSelectedFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
-  const handleUploadSubmit = () => {
+  const handleUploadSubmit = async () => {
     if (selectedFiles.length === 0) return;
+
     setUploading(true);
-    setTimeout(() => {
+    setError('');
+
+    try {
+      const userId = localStorage.getItem('userId') || 'demo-user';
+
+      for (const file of selectedFiles) {
+        const { uploadUrl } = await requestPresignedUrl({
+          fileName: file.name,
+          userId,
+          targetFormat: file.format || 'mp4',
+        });
+
+        await uploadToS3(file, uploadUrl);
+      }
+
       onUploadComplete(selectedFiles);
-      setUploading(false);
       setSelectedFiles([]);
       onClose();
-    }, 1200);
+    } catch (err) {
+      setError(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
@@ -174,6 +195,12 @@ export default function FileUploader({ isOpen, onClose, onUploadComplete }) {
                 </button>
               </div>
             ))}
+          </div>
+        )}
+
+        {error && (
+          <div style={{ marginBottom: '16px', color: 'var(--accent-red, #ff6b6b)', fontSize: '0.85rem' }}>
+            {error}
           </div>
         )}
 

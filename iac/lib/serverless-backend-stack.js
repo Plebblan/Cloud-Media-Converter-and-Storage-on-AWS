@@ -103,11 +103,14 @@ class ServerlessBackendStack extends cdk.Stack {
       },
     });
 
-    api.root
+    this.api = api;
+
+    const apiResource = api.root.addResource('api');
+    apiResource
       .addResource('presigned-url')
       .addMethod('POST', new apigateway.LambdaIntegration(getPresignedUrl));
 
-    api.root
+    apiResource
       .addResource('job-status')
       .addResource('{userId}')
       .addResource('{jobId}')
